@@ -1095,6 +1095,99 @@ function DropboxPanel() {
   );
 }
 
+/* ---------- backup export / import (browser-only: uses localStorage + File API) ---------- */
+function downloadJSON(filename, dataObj) {
+  const blob = new Blob([JSON.stringify(dataObj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function mergeBlockArrays(a, b) {
+  const map = new Map();
+  (a || []).forEach((x) => map.set(x.id, x));
+  (b || []).forEach((x) => map.set(x.id, x));
+  return Array.from(map.values());
+}
+
+function importWorklogData(data) {
+  if (data.settings) {
+    localStorage.setItem("worklog:pomodoro-settings", JSON.stringify(data.settings));
+  }
+  if (data.days) {
+    Object.keys(data.days).forEach((dateKey) => {
+      const existing = loadDay(dateKey);
+      const incoming = data.days[dateKey] || {};
+      const merged = {
+        planned: mergeBlockArrays(existing.planned, incoming.planned),
+        actual: mergeBlockArrays(existing.actual, incoming.actual),
+      };
+      saveDay(dateKey, merged);
+    });
+  }
+}
+
+function BackupPanel() {
+  const [status, setStatus] = useState("");
+  const fileInputRef = useRef(null);
+
+  const handleExport = () => {
+    const data = collectAllWorklogData();
+    downloadJSON(`worklog-backup-${formatDateKey(new Date())}.json`, data);
+    setStatus("ファイルに書き出しました。");
+  };
+
+  const handleImportClick = () => {
+    if (fileInputRef.current) fileInputRef.current.click();
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        importWorklogData(data);
+        setStatus("インポートしました。画面を再読み込みします…");
+        setTimeout(() => window.location.reload(), 800);
+      } catch (err) {
+        setStatus("読み込みに失敗しました: ファイルの形式が正しくない可能性があります。");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  return (
+    <div style={{ background: COLORS.panel, border: `2px solid ${COLORS.panelBorder}`, borderRadius: RADIUS, padding: 18, marginTop: 24 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: COLORS.ink }}>データのバックアップ・移行</div>
+      <div className="text-xs mb-3" style={{ color: COLORS.inkSoft }}>
+        別のブラウザ・端末・URL（例: ローカルのファイルとGitHub Pages版）の間でデータを移したいときは、
+        移行元で「ファイルに書き出す」→ 移行先で「ファイルから読み込む」の順に使ってください。
+        読み込みは既存の記録に追加でマージされます（上書き消去はされません）。
+      </div>
+      <div className="flex flex-wrap gap-2 items-center">
+        <IconButton onClick={handleExport} style={{ background: COLORS.ink, color: "#fff", borderColor: COLORS.ink }}>
+          ファイルに書き出す
+        </IconButton>
+        <IconButton onClick={handleImportClick}>ファイルから読み込む</IconButton>
+        <input ref={fileInputRef} type="file" accept="application/json" onChange={handleFileChange} style={{ display: "none" }} />
+      </div>
+      {status && (
+        <div className="text-xs mt-2" style={{ color: COLORS.ink }}>
+          {status}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------- main app ---------- */
 function WorkLogApp() {
   const [dateKey, setDateKey] = useState(todayKey());
@@ -1321,6 +1414,7 @@ function WorkLogApp() {
               </div>
             </div>
 
+            <BackupPanel />
             <DropboxPanel />
           </>
         )}
