@@ -122,7 +122,7 @@ function loadDay(dateKey) {
   } catch (e) {
     /* key not found or storage error — start fresh */
   }
-  return { planned: [], actual: [], mood: null, memo: "" };
+  return { planned: [], actual: [], mood: null, todos: [] };
 }
 function saveDay(dateKey, data) {
   try {
@@ -217,7 +217,16 @@ function MoodPicker({ mood, onChange }) {
   );
 }
 
-function MemoPanel({ memo, onChange }) {
+function TodoPanel({ todos, onAdd, onToggle, onDelete }) {
+  const [draft, setDraft] = useState("");
+
+  const submit = () => {
+    const text = draft.trim();
+    if (!text) return;
+    onAdd(text);
+    setDraft("");
+  };
+
   return (
     <div
       style={{
@@ -229,25 +238,47 @@ function MemoPanel({ memo, onChange }) {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.ink, marginBottom: 8 }}>日記・メモ</div>
-      <textarea
-        value={memo}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="今日あったことや振り返りを自由に書いてください"
-        rows={6}
-        style={{
-          width: "100%",
-          border: `1px solid ${COLORS.lineStrong}`,
-          borderRadius: 8,
-          padding: "8px 10px",
-          fontSize: 13,
-          fontFamily: FONT_SANS,
-          color: COLORS.ink,
-          background: "#fff",
-          boxSizing: "border-box",
-          resize: "vertical",
-        }}
-      />
+      <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.ink, marginBottom: 8 }}>TODOリスト</div>
+      <div className="flex flex-col gap-1 mb-2">
+        {todos.length === 0 && <div style={{ fontSize: 12, color: COLORS.inkSoft }}>まだ項目がありません</div>}
+        {todos.map((t) => (
+          <label key={t.id} className="flex items-center gap-2" style={{ fontSize: 13, color: COLORS.ink }}>
+            <input type="checkbox" checked={t.done} onChange={() => onToggle(t.id)} />
+            <span style={{ flex: 1, textDecoration: t.done ? "line-through" : "none", opacity: t.done ? 0.6 : 1 }}>{t.text}</span>
+            <button
+              type="button"
+              onClick={() => onDelete(t.id)}
+              style={{ background: "none", border: "none", color: COLORS.inkSoft, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "0 2px" }}
+            >
+              ×
+            </button>
+          </label>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+          }}
+          placeholder="項目を追加"
+          style={{
+            flex: 1,
+            border: `1px solid ${COLORS.lineStrong}`,
+            borderRadius: 8,
+            padding: "6px 8px",
+            fontSize: 13,
+            fontFamily: FONT_SANS,
+            color: COLORS.ink,
+            background: "#fff",
+            boxSizing: "border-box",
+          }}
+        />
+        <IconButton onClick={submit} style={{ background: COLORS.ink, color: "#fff", borderColor: COLORS.ink }}>
+          追加
+        </IconButton>
+      </div>
     </div>
   );
 }
@@ -1198,7 +1229,7 @@ function importWorklogData(data) {
         planned: mergeBlockArrays(existing.planned, incoming.planned),
         actual: mergeBlockArrays(existing.actual, incoming.actual),
         mood: incoming.mood != null ? incoming.mood : existing.mood || null,
-        memo: incoming.memo ? incoming.memo : existing.memo || "",
+        todos: mergeBlockArrays(existing.todos, incoming.todos),
       };
       saveDay(dateKey, merged);
     });
@@ -1279,7 +1310,7 @@ function WorkLogApp() {
   const [planned, setPlanned] = useState([]);
   const [actual, setActual] = useState([]);
   const [mood, setMood] = useState(null);
-  const [memo, setMemo] = useState("");
+  const [todos, setTodos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState({ workMin: 25, breakMin: 5, autoLog: true });
   const [confirmClear, setConfirmClear] = useState(false);
@@ -1297,7 +1328,7 @@ function WorkLogApp() {
     setPlanned(data.planned || []);
     setActual(data.actual || []);
     setMood(data.mood || null);
-    setMemo(data.memo || "");
+    setTodos(data.todos || []);
     setLoading(false);
   }, [dateKey]);
 
@@ -1307,9 +1338,9 @@ function WorkLogApp() {
 
   useEffect(() => {
     if (loading) return;
-    saveDay(dateKey, { planned, actual, mood, memo });
+    saveDay(dateKey, { planned, actual, mood, todos });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planned, actual, mood, memo]);
+  }, [planned, actual, mood, todos]);
 
   useEffect(() => {
     saveSettings(settings);
@@ -1375,11 +1406,15 @@ function WorkLogApp() {
   };
   const liveElapsed = liveTracking && liveStartTs ? Math.floor((Date.now() - liveStartTs) / 1000) : 0;
 
+  const addTodo = (text) => setTodos((t) => [...t, { id: nextId(), text, done: false }]);
+  const toggleTodo = (id) => setTodos((t) => t.map((x) => (x.id === id ? { ...x, done: !x.done } : x)));
+  const deleteTodo = (id) => setTodos((t) => t.filter((x) => x.id !== id));
+
   const clearDay = () => {
     setPlanned([]);
     setActual([]);
     setMood(null);
-    setMemo("");
+    setTodos([]);
     setConfirmClear(false);
   };
 
@@ -1480,7 +1515,7 @@ function WorkLogApp() {
               <TimelineBar label="実績" color={COLORS.actual} softColor={COLORS.actualSoft} blocks={actual} onDeleteBlock={deleteActual} onUpdateBlock={updateActual} showNowLine={isToday} />
               <div style={{ width: 360, maxWidth: "100%", marginTop: 36, display: "flex", flexDirection: "column", gap: 16 }}>
                 <PomodoroPanel settings={settings} onSettingsChange={setSettings} onWorkComplete={(b) => logActualSpan(b.label, b.startTs, b.endTs)} />
-                <MemoPanel memo={memo} onChange={setMemo} />
+                <TodoPanel todos={todos} onAdd={addTodo} onToggle={toggleTodo} onDelete={deleteTodo} />
               </div>
             </div>
 
