@@ -122,7 +122,7 @@ function loadDay(dateKey) {
   } catch (e) {
     /* key not found or storage error — start fresh */
   }
-  return { planned: [], actual: [], mood: null };
+  return { planned: [], actual: [], mood: null, memo: "" };
 }
 function saveDay(dateKey, data) {
   try {
@@ -213,6 +213,41 @@ function MoodPicker({ mood, onChange }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function MemoPanel({ memo, onChange }) {
+  return (
+    <div
+      style={{
+        border: `2px solid ${COLORS.panelBorder}`,
+        borderRadius: RADIUS,
+        background: COLORS.panel,
+        padding: "12px 16px",
+        fontFamily: FONT_SANS,
+        boxSizing: "border-box",
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 700, color: COLORS.ink, marginBottom: 8 }}>日記・メモ</div>
+      <textarea
+        value={memo}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="今日あったことや振り返りを自由に書いてください"
+        rows={6}
+        style={{
+          width: "100%",
+          border: `1px solid ${COLORS.lineStrong}`,
+          borderRadius: 8,
+          padding: "8px 10px",
+          fontSize: 13,
+          fontFamily: FONT_SANS,
+          color: COLORS.ink,
+          background: "#fff",
+          boxSizing: "border-box",
+          resize: "vertical",
+        }}
+      />
     </div>
   );
 }
@@ -1163,6 +1198,7 @@ function importWorklogData(data) {
         planned: mergeBlockArrays(existing.planned, incoming.planned),
         actual: mergeBlockArrays(existing.actual, incoming.actual),
         mood: incoming.mood != null ? incoming.mood : existing.mood || null,
+        memo: incoming.memo ? incoming.memo : existing.memo || "",
       };
       saveDay(dateKey, merged);
     });
@@ -1243,6 +1279,7 @@ function WorkLogApp() {
   const [planned, setPlanned] = useState([]);
   const [actual, setActual] = useState([]);
   const [mood, setMood] = useState(null);
+  const [memo, setMemo] = useState("");
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState({ workMin: 25, breakMin: 5, autoLog: true });
   const [confirmClear, setConfirmClear] = useState(false);
@@ -1260,6 +1297,7 @@ function WorkLogApp() {
     setPlanned(data.planned || []);
     setActual(data.actual || []);
     setMood(data.mood || null);
+    setMemo(data.memo || "");
     setLoading(false);
   }, [dateKey]);
 
@@ -1269,9 +1307,9 @@ function WorkLogApp() {
 
   useEffect(() => {
     if (loading) return;
-    saveDay(dateKey, { planned, actual, mood });
+    saveDay(dateKey, { planned, actual, mood, memo });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planned, actual, mood]);
+  }, [planned, actual, mood, memo]);
 
   useEffect(() => {
     saveSettings(settings);
@@ -1341,6 +1379,7 @@ function WorkLogApp() {
     setPlanned([]);
     setActual([]);
     setMood(null);
+    setMemo("");
     setConfirmClear(false);
   };
 
@@ -1439,8 +1478,9 @@ function WorkLogApp() {
             <div className="flex flex-wrap gap-10 justify-center mb-10" style={{ paddingLeft: 40 }}>
               <TimelineBar label="計画" color={COLORS.planned} softColor={COLORS.plannedSoft} blocks={planned} onDeleteBlock={deletePlanned} onUpdateBlock={updatePlanned} showNowLine={isToday} />
               <TimelineBar label="実績" color={COLORS.actual} softColor={COLORS.actualSoft} blocks={actual} onDeleteBlock={deleteActual} onUpdateBlock={updateActual} showNowLine={isToday} />
-              <div style={{ width: 360, maxWidth: "100%", marginTop: 36 }}>
+              <div style={{ width: 360, maxWidth: "100%", marginTop: 36, display: "flex", flexDirection: "column", gap: 16 }}>
                 <PomodoroPanel settings={settings} onSettingsChange={setSettings} onWorkComplete={(b) => logActualSpan(b.label, b.startTs, b.endTs)} />
+                <MemoPanel memo={memo} onChange={setMemo} />
               </div>
             </div>
 
