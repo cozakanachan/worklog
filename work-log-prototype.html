@@ -122,7 +122,7 @@ function loadDay(dateKey) {
   } catch (e) {
     /* key not found or storage error — start fresh */
   }
-  return { planned: [], actual: [] };
+  return { planned: [], actual: [], mood: null };
 }
 function saveDay(dateKey, data) {
   try {
@@ -180,6 +180,40 @@ function IconButton({ children, onClick, style, disabled, title }) {
     >
       {children}
     </button>
+  );
+}
+
+const MOOD_OPTIONS = ["🤩", "☺️", "😐", "😢", "😫"];
+
+function MoodPicker({ mood, onChange }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span style={{ fontSize: 12, color: COLORS.ink, fontWeight: 700 }}>今日の気分・進み具合:</span>
+      <div className="flex gap-1">
+        {MOOD_OPTIONS.map((emoji) => {
+          const selected = mood === emoji;
+          return (
+            <button
+              type="button"
+              key={emoji}
+              onClick={() => onChange(selected ? null : emoji)}
+              title={emoji}
+              style={{
+                fontSize: 20,
+                lineHeight: 1,
+                padding: "4px 7px",
+                borderRadius: 8,
+                border: `2px solid ${selected ? COLORS.actual : COLORS.panelBorder}`,
+                background: selected ? "#fff" : COLORS.panel,
+                cursor: "pointer",
+              }}
+            >
+              {emoji}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -710,7 +744,7 @@ function PomodoroPanel({ settings, onSettingsChange, onWorkComplete }) {
 
 /* ---------- month calendar ---------- */
 function MonthCalendar({ monthKey, onSelectDay }) {
-  const [totals, setTotals] = useState({});
+  const [dayData, setDayData] = useState({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -722,16 +756,16 @@ function MonthCalendar({ monthKey, onSelectDay }) {
       keys.map((k) =>
         Promise.resolve(loadDay(k)).then((data) => {
           const mins = (data.actual || []).reduce((sum, b) => sum + (b.end - b.start), 0);
-          return [k, mins];
+          return [k, { mins, mood: data.mood || null }];
         })
       )
     ).then((entries) => {
       if (cancelled) return;
       const map = {};
-      entries.forEach(([k, mins]) => {
-        map[k] = mins;
+      entries.forEach(([k, v]) => {
+        map[k] = v;
       });
-      setTotals(map);
+      setDayData(map);
       setLoading(false);
     });
     return () => {
@@ -742,7 +776,7 @@ function MonthCalendar({ monthKey, onSelectDay }) {
   const n = daysInMonth(monthKey);
   const startWeekday = firstWeekdayOfMonth(monthKey);
   const today = todayKey();
-  const monthTotal = Object.values(totals).reduce((s, v) => s + v, 0);
+  const monthTotal = Object.values(dayData).reduce((s, v) => s + v.mins, 0);
 
   const cells = [];
   for (let i = 0; i < startWeekday; i++) cells.push(null);
@@ -768,7 +802,7 @@ function MonthCalendar({ monthKey, onSelectDay }) {
             {cells.map((d, idx) => {
               if (d === null) return <div key={idx} />;
               const key = dateKeyForDay(monthKey, d);
-              const mins = totals[key] || 0;
+              const { mins = 0, mood = null } = dayData[key] || {};
               const isToday = key === today;
               return (
                 <button
@@ -790,7 +824,9 @@ function MonthCalendar({ monthKey, onSelectDay }) {
                     boxSizing: "border-box",
                   }}
                 >
-                  <span style={{ fontSize: 12, fontWeight: isToday ? 700 : 400, color: COLORS.ink }}>{d}</span>
+                  <span style={{ fontSize: 12, fontWeight: isToday ? 700 : 400, color: COLORS.ink }}>
+                    {d} {mood || ""}
+                  </span>
                   <span style={{ fontSize: 10, fontFamily: FONT_MONO, color: mins > 0 ? COLORS.actual : COLORS.inkSoft }}>
                     {mins > 0 ? `${Math.floor(mins / 60)}:${pad(mins % 60)}` : "-"}
                   </span>
@@ -1016,7 +1052,7 @@ function DropboxPanel() {
   };
 
   return (
-    <div style={{ background: COLORS.panel, border: `2px solid ${COLORS.panelBorder}`, borderRadius: RADIUS, padding: 18, marginTop: 24 }}>
+    <div style={{ background: COLORS.panel, border: `2px solid ${COLORS.panelBorder}`, borderRadius: RADIUS, padding: 18 }}>
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: COLORS.ink }}>Dropboxへの自動エクスポート</div>
 
       {isFileProtocol && (
@@ -1126,6 +1162,7 @@ function importWorklogData(data) {
       const merged = {
         planned: mergeBlockArrays(existing.planned, incoming.planned),
         actual: mergeBlockArrays(existing.actual, incoming.actual),
+        mood: incoming.mood != null ? incoming.mood : existing.mood || null,
       };
       saveDay(dateKey, merged);
     });
@@ -1165,7 +1202,7 @@ function BackupPanel() {
   };
 
   return (
-    <div style={{ background: COLORS.panel, border: `2px solid ${COLORS.panelBorder}`, borderRadius: RADIUS, padding: 18, marginTop: 24 }}>
+    <div style={{ background: COLORS.panel, border: `2px solid ${COLORS.panelBorder}`, borderRadius: RADIUS, padding: 18 }}>
       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: COLORS.ink }}>データのバックアップ・移行</div>
       <div className="text-xs mb-3" style={{ color: COLORS.inkSoft }}>
         別のブラウザ・端末・URL（例: ローカルのファイルとGitHub Pages版）の間でデータを移したいときは、
@@ -1188,13 +1225,24 @@ function BackupPanel() {
   );
 }
 
+/* ---------- settings page ---------- */
+function SettingsView() {
+  return (
+    <div className="flex flex-col gap-6">
+      <BackupPanel />
+      <DropboxPanel />
+    </div>
+  );
+}
+
 /* ---------- main app ---------- */
 function WorkLogApp() {
   const [dateKey, setDateKey] = useState(todayKey());
-  const [viewMode, setViewMode] = useState("day"); // "day" | "month"
+  const [viewMode, setViewMode] = useState("day"); // "day" | "month" | "settings"
   const [monthKey, setMonthKey] = useState(currentMonthKey());
   const [planned, setPlanned] = useState([]);
   const [actual, setActual] = useState([]);
+  const [mood, setMood] = useState(null);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState({ workMin: 25, breakMin: 5, autoLog: true });
   const [confirmClear, setConfirmClear] = useState(false);
@@ -1211,6 +1259,7 @@ function WorkLogApp() {
     const data = loadDay(dateKey);
     setPlanned(data.planned || []);
     setActual(data.actual || []);
+    setMood(data.mood || null);
     setLoading(false);
   }, [dateKey]);
 
@@ -1220,9 +1269,9 @@ function WorkLogApp() {
 
   useEffect(() => {
     if (loading) return;
-    saveDay(dateKey, { planned, actual });
+    saveDay(dateKey, { planned, actual, mood });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planned, actual]);
+  }, [planned, actual, mood]);
 
   useEffect(() => {
     saveSettings(settings);
@@ -1291,6 +1340,7 @@ function WorkLogApp() {
   const clearDay = () => {
     setPlanned([]);
     setActual([]);
+    setMood(null);
     setConfirmClear(false);
   };
 
@@ -1322,8 +1372,9 @@ function WorkLogApp() {
                 >
                   月間カレンダー
                 </IconButton>
+                <IconButton onClick={() => setViewMode("settings")}>⚙ 設定</IconButton>
               </>
-            ) : (
+            ) : viewMode === "month" ? (
               <>
                 <IconButton onClick={() => setMonthKey((m) => addMonths(m, -1))}>◀</IconButton>
                 <div style={{ fontFamily: FONT_MONO, fontSize: 14, minWidth: 110, textAlign: "center", color: COLORS.ink, fontWeight: 600 }}>{formatMonthJP(monthKey)}</div>
@@ -1331,11 +1382,15 @@ function WorkLogApp() {
                 {monthKey !== currentMonthKey() && <IconButton onClick={() => setMonthKey(currentMonthKey())}>今月</IconButton>}
                 <IconButton onClick={() => setViewMode("day")}>日別に戻る</IconButton>
               </>
+            ) : (
+              <IconButton onClick={() => setViewMode("day")}>日別に戻る</IconButton>
             )}
           </div>
         </div>
 
-        {viewMode === "month" ? (
+        {viewMode === "settings" ? (
+          <SettingsView />
+        ) : viewMode === "month" ? (
           <MonthCalendar
             monthKey={monthKey}
             onSelectDay={(k) => {
@@ -1376,6 +1431,10 @@ function WorkLogApp() {
               )}
             </div>
 
+            <div className="mb-4">
+              <MoodPicker mood={mood} onChange={setMood} />
+            </div>
+
             {/* three-column layout: 計画 / 実績 / ポモドーロ */}
             <div className="flex flex-wrap gap-10 justify-center mb-10" style={{ paddingLeft: 40 }}>
               <TimelineBar label="計画" color={COLORS.planned} softColor={COLORS.plannedSoft} blocks={planned} onDeleteBlock={deletePlanned} onUpdateBlock={updatePlanned} showNowLine={isToday} />
@@ -1413,9 +1472,6 @@ function WorkLogApp() {
                 <AddBlockForm onAdd={addBlock} />
               </div>
             </div>
-
-            <BackupPanel />
-            <DropboxPanel />
           </>
         )}
       </div>
